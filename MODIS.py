@@ -2,60 +2,65 @@ import numpy as np
 from pyhdf.SD import *
 import time
 import os
-from geopy.distance import vincenty
+import pandas as pd
 
 lat_mao = -(3 + 12/60 + 46.70/3600)
 lon_mao = -(60 + 35/60 + 53/3600)
-coord_mao = (lat_mao, lon_mao)
 output_path = "modis.csv"
+data_folder = "/home/danilo/dados-ic/modis-aqua/"
 
 initial_time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
 
 def do_work(path):
     sd = SD(path)
     lat = np.array(sd.select("Latitude")[:])
+    lat_dist = np.abs(lat - lat_mao)
+
     lon = np.array(sd.select("Longitude")[:])
+    lon_dist = np.abs(lon - lon_mao)
+
     cf = np.array(sd.select("Cloud_Fraction")[:])
     t = np.array(sd.select("Scan_Start_Time")[:]) + initial_time
-    coord_pt = (lat, lon)
-    get_dist = np.vectorize(vincenty, excluded=(0, 1))
-    dist = get_dist(coord_mao, coord_pt)
-    ind = np.where(dist == np.min(dist))
-    x = ind[0]
-    y = ind[1]
 
-    lat = lat[x-1:x+2, y-1:y+2]
-    lon = lon[x-1:x+2, y-1:y+2]
-    cf = cf[x-1:x+2, y-1:y+2]
-    t = t[x-1:x+2, y-1:y+2]
-    dist = dist[x-1:x+2, y-1:y+2]
+    inds = (lat_dist < 0.5) & (lon_dist < 0.5)
 
-    d = dist / np.sum(dist)
+    cf_avg = np.nanmean(cf[inds]) / 100
+    t_avg = np.nanmean(t[inds])
+    point_count = len(cf[inds])
 
-    def weighted_average(x):
-        return np.sum(x * d)
+    return {"CloudFraction": cf_avg, "Time": t_avg, "Count": point_count}
 
-    total_dist = np.sum(dist)
-    cf = weighted_average(cf)
-    lat = weighted_average(lat)
-    lon = weighted_average(lon)
-    t = weighted_average(t)
-
-    return (cf, lat, lon, t)
 
 
 def main():
-    files = os.listdir()
+    files = os.listdir(data_folder)
     files = [file for file in files if file[-4:] == ".hdf"]
-    with open(output_path, "w") as out:
-        out.write("CloudFraction,Latitude,Longitude,ScanTime\n")
-        i = 0
-        j = len(files)
-        for file in files:
-            row = do_work(file)
-            out.write("%f,%f,%f,%d\n" % row)
-            print("%d/%d\t" % (i, j) + file + "\t" + str(row))
-            i += 1
+
+    i = 0
+    files_count = len(files)
+    cf = np.zeros(files_count)
+    t = np.zeros(files_count)
+    count = np.zeros(files_count)
+
+    for file in files:
+
+        status = "%s/%s - %s" % (i, files_count, file)
+        print(status)
+        file_path = data_folder + file
+        output = do_work(file_path)
+        cf[i] = output["CloudFraction"]
+        t[i] = output["Time"]
+        count[i] = output["Count"]
+        i += 1
+
+
+    print("CFs obtidas")
+    data = pd.DataFrame({"CloudFraction": cf, "Time": t, "Count": count})
+    data.to_csv("modis.csv", index=False)
+    print("Arquivo salvo em modis.csv")
+
+
+
 
 if __name__ == "__main__":
     main()

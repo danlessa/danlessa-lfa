@@ -18,7 +18,7 @@ def do_work(path):
     cf_thin = dataset["percent_thin"][:] / 100
     cf_thin_qc = dataset["qc_percent_thin"][:]
 
-    time = dataset["time_offset"][:]
+    time = dataset["time_offset"][:] + dataset["base_time"][0]
 
     cf = cf_thick + cf_thin
 
