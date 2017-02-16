@@ -3,6 +3,7 @@
 This file contains an implementation of the functions and procedures described
 in Xie & Liu 2013 paper for obtaining cloud fraction values
 """
+import common
 import numpy as np
 import netCDF4 as nc
 import os
@@ -156,7 +157,7 @@ def main():
         print("%s/%s\t%s" % (i, n, path))
 
     df = pd.DataFrame(result)
-    df.to_pickle("CF-XL.pkl")
+    df = common.higienize_data(df)
     df.to_csv("CF-XL.csv", index=False)
 
 

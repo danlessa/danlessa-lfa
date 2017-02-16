@@ -1,6 +1,7 @@
 """
 
 """
+import common
 import netCDF4 as nc
 import os
 import numpy as np
@@ -47,7 +48,7 @@ def main():
         print("%s/%s\t%s" % (i, n, path))
 
     df = pd.DataFrame(result)
-    df.to_pickle("CF-TSI.pkl")
+    df = common.higienize_data(df)
     df.to_csv("CF-TSI.csv", index=False)
 
 if __name__ == "__main__":
