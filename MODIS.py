@@ -1,3 +1,4 @@
+import common
 import numpy as np
 from pyhdf.SD import *
 import time
@@ -6,8 +7,8 @@ import pandas as pd
 
 lat_mao = -(3 + 12/60 + 46.70/3600)
 lon_mao = -(60 + 35/60 + 53/3600)
-output_path = "modis.csv"
-data_folder = "/home/danilo/dados-ic/modis-aqua/"
+output_path = "modis-terra.csv"
+data_folder = "/home/danilo/dados-ic/modis-terra/"
 
 initial_time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
 
@@ -56,7 +57,10 @@ def main():
 
     print("CFs obtidas")
     data = pd.DataFrame({"CloudFraction": cf, "Time": t, "Count": count})
-    data.to_csv("modis.csv", index=False)
+    df = pd.DataFrame(data)
+    df = common.higienize_data(df)
+    df.to_csv(output_path, index=False)
+    
     print("Arquivo salvo em modis.csv")
 
 

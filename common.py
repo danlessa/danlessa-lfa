@@ -26,5 +26,30 @@ def higienize_data(dataset):
         dataset[column] = pd.to_numeric(dataset[column], errors="coerce")
     dataset = dataset.sort_values("Time", ascending=True).reset_index(drop=True)
     dataset.Time = pd.to_datetime(dataset.Time, unit='s')
-    print("Salvando")
     return dataset
+
+def validate_data(data_dict):
+    for k in data_dict.keys():
+        data = data_dict[k]
+        for c in data.columns:
+            if data[c].dtype == np.float64:
+                inds = np.isfinite(data[c])
+                data = data[inds]
+    return data_dict
+
+def convert_time(dataset):
+    dataset.Time = pd.to_datetime(dataset.Time)
+    return dataset
+
+
+def load():
+    raw_XL = pd.read_csv("CF-XL.csv", na_values="--")
+    raw_TSI = pd.read_csv("CF-TSI.csv", na_values="--")
+    raw_terra = pd.read_csv("modis-terra.csv", na_values="--")
+    raw_aqua = pd.read_csv("modis-aqua.csv", na_values="--")    
+    data = {"rad": raw_XL, "tsi": raw_TSI, "terra": raw_terra, "aqua": raw_aqua}
+    
+    for k in data.keys():
+        data[k] = convert_time(data[k])
+        
+    return data
