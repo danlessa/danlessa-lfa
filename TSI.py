@@ -1,5 +1,6 @@
 """
-
+Functions for processing GOAmazon TSI data
+Author: Danilo Lessa Bernardineli
 """
 import common
 import netCDF4 as nc
@@ -7,18 +8,13 @@ import os
 import numpy as np
 import pandas as pd
 
-data_folder = "dados/maotsi/"
-
 
 def do_work(path):
+    """Extract variables from file."""
     dataset = nc.Dataset(path)
 
     cf_thick = dataset["percent_opaque"][:] / 100
-    cf_thick_qc = dataset["qc_percent_opaque"][:]
-
     cf_thin = dataset["percent_thin"][:] / 100
-    cf_thin_qc = dataset["qc_percent_thin"][:]
-
     time = dataset["time_offset"][:] + dataset["base_time"][0]
 
     cf = cf_thick + cf_thin
@@ -26,30 +22,19 @@ def do_work(path):
     return (cf, time)
 
 
-def main():
+def work(path_list):
+    """Work through path list and consolidate in a list."""
 
-    print("Adquirindo o CF do TSI")
-    print("Data path:" + data_folder)
-    files = os.listdir(data_folder)
-    files = [f for f in files if f[-4:] == ".cdf"]
+    result = {"TSI_CloudFraction": [], "Time": []}
 
-    result = {"CloudFraction": [], "Time": []}
-
+    total_files = len(path_list)
     i = 0
-    n = len(files)
-    for filename in files:
-        path = data_folder + filename
 
+    for path in path_list:
+        i += 1
+        print("%s/%s - %s" % (i, total_files, path))
         res = do_work(path)
-        result["CloudFraction"].extend(res[0])
+        result["TSI_CloudFraction"].extend(res[0])
         result["Time"].extend(res[1])
 
-        i += 1
-        print("%s/%s\t%s" % (i, n, path))
-
-    df = pd.DataFrame(result)
-    df = common.higienize_data(df)
-    df.to_csv("CF-TSI.csv", index=False)
-
-if __name__ == "__main__":
-    main()
+    return result
