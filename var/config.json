@@ -1,0 +1,7 @@
+{
+    MODIS_Aqua_path: "~/dados-ic/",
+    MODIS_Terra_path: ""
+    TSI_path: "~/dados-ic/maotsiskycoverM1.b1/",
+    radflux_path: "~/dados-ic/maoradflux1longM1.c2/",
+    LIDAR_path: "~/dados-ic/dlprofwstats4news/"
+}
