@@ -7,6 +7,7 @@ import LIDAR
 import numpy as np
 import pandas as pd
 
+
 def process(folder_path, data_origin):
     """Process all files on given folder"""
 

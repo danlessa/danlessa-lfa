@@ -145,7 +145,7 @@ def work(path_list):
     i = 0
 
     for path in path_list:
-        print("%s/%s - %s" % (i, total_files, path), end="\r")
+        print("\r%d/%d - %s\t" % (i, total_files, path), end="")
         i += 1
         res = do_work(path)
         result["XL_CloudAlbedo"].extend(res[0])

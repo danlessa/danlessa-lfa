@@ -29,7 +29,7 @@ def work(path_list):
 
     for path in path_list:
         i += 1
-        print("%s/%s - %s" % (i, total_files, path), end="\r")
+        print("\r%d/%d - %s\t" % (i, total_files, path), end="")
         res = do_work(path)
         result["Lidar_CloudFraction"].extend(res[0])
         result["Time"].extend(res[1])

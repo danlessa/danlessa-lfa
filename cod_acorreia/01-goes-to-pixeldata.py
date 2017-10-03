@@ -430,7 +430,7 @@ def cloudfraction(r063, temp, mylat, mylon, myboxsize, name):
             noncloud = ~cloud
             cloudypixels = np.float(np.sum(cloud))
             noncloudypixels = np.float(np.sum(noncloud))
-            totalpixels = cloudypixels + noncloudpixels
+            totalpixels = cloudypixels + noncloudypixels
             CF = mynan  # -999
             if totalpixels > 0:
                 # print  '{0:.6f}'.format(round(CF,6))
