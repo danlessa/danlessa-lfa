@@ -11,7 +11,12 @@ import pandas as pd
 import time
 import datetime
 import matplotlib.pyplot as plt
+import scipy.stats as st
+import pickle as pkl
 
+
+lat_mao = common.lat_mao
+lon_mao = common.lon_mao
 ######################################################
 """
 Constants
@@ -216,6 +221,8 @@ def reflectance(time, lat, lon, data, temperature, procmode="IR"):
     """
     Calculates reflectance on GOES 1/4 band
     Lat/lon/data/temperature must have same shape.
+    Returns an 3-tuple containing reflectance, solar zenith
+    and view zenith.
 
     Keyword Arguments:
 
@@ -244,7 +251,7 @@ def reflectance(time, lat, lon, data, temperature, procmode="IR"):
         alpha = (t0 * F0 * mu0 / (np.pi * solarearth_distance ** 2)) - Emission
         cs = (RadIR - Emission) / alpha
 
-    return cs
+    return (cs, solar_zenith, view_zenith)
 
 
 def temperature(data):
@@ -282,57 +289,97 @@ Processing functions
 """
 
 
-def process(datapoint, d=0.5):
+def process(datapoint, distance_list=[0.5]):
     """
     Outputs some variables using an 2-tuple containing IR and VIS
-    GOES retrieval data for the same instant.
+    GOES retrieval data filepaths for the same instant.
 
     Keyword Arguments:
     datapoint -- 2-tuple containing IR/VIS filepaths
     d -- Distance filter (degrees from MAO site)
     """
+    distance_list.sort(reverse=True)
 
     IR_path = datapoint[0]
     VIS_path = datapoint[1]
 
+    # Getting vars from IR band
     raw_IR = nc.Dataset(IR_path)
+    raw_VIS = nc.Dataset(VIS_path)
     time = datetime.datetime.fromtimestamp(raw_IR["time"][0])
 
-    lat = np.squeeze(raw_IR["lat"])
-    lon = np.squeeze(raw_IR["lon"])
-    data = np.squeeze(raw_IR["data"])
+    data_ir = np.squeeze(raw_IR["data"])
+    lat_ir = np.squeeze(raw_IR["lat"])
+    lon_ir = np.squeeze(raw_IR["lon"])
 
-    filter_indices = (lat - lat_mao < d)
-    filter_indices &= (lat - lat_mao > -d)
-    filter_indices &= (lon - lon_mao < d)
-    filter_indices &= (lon - lon_mao > -d)
+    data_vis = np.squeeze(raw_VIS["data"])
+    lat_vis = np.squeeze(raw_VIS["lat"])
+    lon_vis = np.squeeze(raw_VIS["lon"])
 
-    lat = lat[filter_indices]
-    lon = lon[filter_indices]
-    data = data[filter_indices]
+    output = []
+    for d in distance_list:
+        # Filter lat/lon/data according to distance to MAO
+        filter_indices = (lat_ir - lat_mao < d)
+        filter_indices &= (lat_ir - lat_mao > -d)
+        filter_indices &= (lon_ir - lon_mao < d)
+        filter_indices &= (lon_ir - lon_mao > -d)
 
-    temp = temperature(data)
-    refl_IR = reflectance(time, lat, lon, data, temp, "IR")
-    cf_IR = cloudfraction(refl_IR, temp)
+        lat_ir = lat_ir[filter_indices]
+        lon_ir = lon_ir[filter_indices]
+        data_ir = data_ir[filter_indices]
 
-    raw_VIS = nc.Dataset(VIS_path)
-    data = np.squeeze(raw_VIS["data"])[filter_indices]
-    refl_VIS = reflectance(time, lat, lon, data, temp, "VIS")
-    cf_VIS = cloudfraction(refl_VIS, temp)
+        lat_vis = lat_vis[filter_indices]
+        lon_vis = lon_vis[filter_indices]
+        data_vis = data_vis[filter_indices]
 
-    return {"CloudFraction_VIS": cf_VIS, "CloudFraction_IR": cf_IR,
-            "Refl_VIS": np.mean(refl_VIS), "Refl_IR": np.mean(refl_IR),
-            "temp": np.mean(temp), "N_IR": len(refl_IR),
-            "N_VIS": len(refl_VIS), "Time": time}
+        delta_lat = lat_vis - lat_ir
+        delta_lon = lon_vis - lon_ir
+
+        avg_delta_lat = np.mean(delta_lat)
+        avg_delta_lon = np.mean(delta_lon)
+        var_delta_lat = np.var(delta_lat)
+        var_delta_lon = np.var(delta_lon)
+
+        temp = temperature(data_ir)
+        (refl_IR, solar_zenith, view_zenith) = reflectance(time,
+                                                           lat_ir,
+                                                           lon_ir,
+                                                           data_ir,
+                                                           temp, "IR")
+        cf_IR = cloudfraction(refl_IR, temp)
+
+        (refl_VIS, solar_zenith, view_zenith) = reflectance(time,
+                                                            lat_vis,
+                                                            lon_vis,
+                                                            data_vis,
+                                                            temp, "VIS")
+        cf_VIS = cloudfraction(refl_VIS, temp)
+
+        # Outputting
+        out = {"CloudFraction_VIS": cf_VIS,
+               "CloudFraction_IR": cf_IR,
+               "Reflectance_VIS": np.mean(refl_VIS),
+               "Reflectance_IR": np.mean(refl_IR),
+               "Solar_Zenith": np.mean(solar_zenith),
+               "View_Zenith": np.mean(view_zenith),
+               "Temperature": np.mean(temp),
+               "N_IR": len(refl_IR),
+               "N_VIS": len(refl_VIS),
+               "Latitude_delta_avg": avg_delta_lat,
+               "Longitude_delta_avg": avg_delta_lon,
+               "Latitude_delta_var": var_delta_lat,
+               "Longitude_delta_var": var_delta_lon,
+               "Time": time,
+               "Delta": d}
+
+        output.append(out)
+
+    return output
 
 
-def do_work(folder_paths, d=0.5):
+def get_datapoints(folder_paths):
     """
-    Apply process function to given folders and return its output
-
-    Keyword Arguments:
-    folder_paths -- list containg folders to process
-    d -- Distance filter (degrees from MAO site)
+    Get GOES files from folder_paths for processing.
     """
 
     datapoints = []
@@ -346,21 +393,30 @@ def do_work(folder_paths, d=0.5):
             filepath_IR = folder_path + "/" + datapoint + ".BAND_04.nc"
             datapoints.append([filepath_IR, filepath_VIS])
 
+    return datapoints
+
+
+def do_work(folder_paths, distance_list=[0.5, 1]):
+    """
+    Apply process function to given folders and return its output.
+
+    Keyword Arguments:
+    folder_paths -- list containg folders to process
+    d -- Distance filter (degrees from MAO site)
+    """
+    datapoints = get_datapoints(folder_paths)
+    i = 0
+    N = len(datapoints)
     output = []
 
-    i = 1
-    N = len(datapoints)
-
     for datapoint in datapoints:
-        try:
-            print("\r%s - %d/%d\t" % (datapoint[0][:-11], i, N), end="")
-            output.append(process(datapoint))
-            i += 1
-        except:
-            print("[Error]")
+        i += 1
+        print("\r%s - %d/%d\t" % (datapoint[0][:-11], i, N), end="")
+        output.append(process(datapoint, distance_list))
 
-    output = pd.DataFrame(output)
-    return output
+    flat_output = [item for sublist in output for item in sublist]
+    dataframe = pd.DataFrame(flat_output)
+    return dataframe
 
 
 def main():
@@ -368,14 +424,16 @@ def main():
     Do the generic thing.
     """
 
+    distance_list = list(np.arange(0.1, 2.1, 0.1))
+
     folder_paths = [os.path.expanduser(
         "~/dados-ic/GOES/2014"), os.path.expanduser("~/dados-ic/GOES/2015")]
-    output = do_work(folder_paths, d=0.5)
+    output = do_work(folder_paths, distance_list=distance_list)
 
-    output_path = os.expanduser("~/dados-ic/processed/")
-    output_path = os.path.join(output_path, "goes.csv")
-    output.to_csv(output_path, index=False)
+    output_path = os.path.expanduser("~/dados-ic/output/")
+    pickle_path = os.path.join(output_path, "goes.pkl")
+    csv_path = os.path.join(output_path, "goes.csv")
+    output.to_csv(csv_path, index=False)
 
-
-if __name__ == "__init__":
+if __name__ == "__main__":
     main()

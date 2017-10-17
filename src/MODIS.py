@@ -8,6 +8,12 @@ import time
 import os
 import pandas as pd
 import sys
+import common
+import datetime as dt
+import pyhdf
+
+lat_mao = common.lat_mao
+lon_mao = common.lon_mao
 
 # MODIS base time
 initial_time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
@@ -16,8 +22,8 @@ initial_time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
 default_delta = 0.5
 default_variables = ["Cloud_Fraction", "Solar_Zenith"]
 
-default_data_folder = os.path.expanduser("~/dados-ic/MODIS_Aqua")
-default_output_path = os.path.expanduser("~/dados-ic/output/modis_aqua.csv")
+default_data_folder = os.path.expanduser("~/dados-ic/MODIS_Terra")
+default_output_path = os.path.expanduser("~/dados-ic/output/modis_terra.csv")
 
 
 def get_modis_filepaths(folder_path):
@@ -27,7 +33,7 @@ def get_modis_filepaths(folder_path):
     """
 
     # Getting list of files
-    files = os.listdir(data_path)
+    files = os.listdir(folder_path)
 
     files = [f[10:-22] for f in files]  # clean useless filename text
     files.sort()
@@ -70,7 +76,7 @@ def get_modis_filepaths(folder_path):
     dup = dup.drop_duplicates()
 
     # Creating an nice list of duplicate filenames
-    files = os.listdir(data_path)
+    files = os.listdir(folder_path)
     dup_files = []
     duplicates = []
 
@@ -88,10 +94,10 @@ def get_modis_filepaths(folder_path):
                 file2 = f
         dup_files.append((file1, file2))
 
-    dup_filepaths = [(data_path + "/" + f[0], data_path + "/" + f[1])
+    dup_filepaths = [(folder_path + "/" + f[0], folder_path + "/" + f[1])
                      for f in dup_files]
 
-    filepaths = [data_path + "/" + f for f in files]
+    filepaths = [folder_path + "/" + f for f in files]
     un_filepaths = []
     for file in filepaths:
         if file not in np.array(dup_filepaths).flatten():
@@ -108,11 +114,51 @@ def get_modis_filepaths(folder_path):
     return output_filepaths
 
 
-def filter_modis_dataset(dataset, delta=default_delta,
-                         variables=default_variables):
+def load_dataset(dataset, variables=default_variables):
     """
-    Filter pertinent variables from a MODIS HDF4 dataset
-    and returns a pandas dataset.
+    Loads MODIS dataset and retrieve pertinent variables.
+    Output is an dictionary.
+
+    Keyword arguments:
+    dataset -- MODIS dataset (pyHDF4)
+    variables -- List containing vars to output from HDF file.
+    """
+
+    int_time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
+
+    latitude = np.squeeze(dataset.select("Latitude")[:])
+    longitude = np.squeeze(dataset.select("Longitude")[:])
+    t = np.squeeze(dataset.select("Scan_Start_Time")[:]) + int_time
+
+    output = {}
+    output["Latitude"] = latitude
+    output["Longitude"] = longitude
+    output["Time"] = t
+
+    for variable in variables:
+        variable_data = np.squeeze(dataset.select(variable)[:])
+        output[variable] = variable_data
+
+    return output
+
+
+def concatenate_datadict(datadict1, datadict2):
+    """
+    Concatenates two datadicts.
+    """
+
+    datadict_out = {}
+    for k in datadict1.keys():
+        datadict_out[k] = np.concatenate((datadict1[k], datadict2[k]))
+
+    return datadict_out
+
+
+def filter_modis_datadict(datadict, delta=default_delta,
+                          variables=default_variables):
+    """
+    Filter pertinent variables from a load_dataset(..) datadict
+    and returns a filtered version
 
     Keyword arguments:
     dataset -- MODIS dataset (pyHDF4)
@@ -120,14 +166,9 @@ def filter_modis_dataset(dataset, delta=default_delta,
     variables -- List containing vars to output from HDF file.
     """
 
-    # MODIS06_L2 base time
-
-    _time = time.mktime(time.strptime("00:00 01/01/1993", "%H:%M %d/%m/%Y"))
-
-    latitude = np.array(dataset.select("Latitude")[:])
-    longitude = np.array(dataset.select("Longitude")[:])
-
-    t = np.array(dataset.select("Scan_Start_Time")[:]) + initial_time
+    latitude = datadict["Latitude"]
+    longitude = datadict["Longitude"]
+    t = datadict["Time"]
 
     latitude_delta = latitude - lat_mao
     longitude_delta = longitude - lon_mao
@@ -138,20 +179,21 @@ def filter_modis_dataset(dataset, delta=default_delta,
     filter_indices &= latitude_delta > -delta
     filter_indices &= longitude_delta > -delta
 
-    filtered_dataset = {}
+    filtered_datadict = {}
 
-    filtered_dataset["Latitude"] = latitude[filter_indices]
-    filtered_dataset["Longitude"] = longitude[filter_indices]
-    filtered_dataset["Time"] = t[filter_indices]
+    filtered_datadict["Latitude"] = latitude[filter_indices]
+    filtered_datadict["Longitude"] = longitude[filter_indices]
+    filtered_datadict["Time"] = t[filter_indices]
+
     for variable in variables:
-        variable_data = np.array(dataset.select(variable)[:])
-        variable_data = variable_data[filter_indices]
-        filtered_dataset[variable] = variable_data
+        filtered_datadict[variable] = datadict[variable][filter_indices]
 
-    return pd.DataFrame(filtered_dataset)
+    filtered_datadict["Delta"] = delta
+
+    return filtered_datadict
 
 
-def read_modis_datasets(filepaths, delta=default_delta,
+def read_modis_datasets(filepaths, delta_list=[default_delta],
                         variables=default_variables):
     """Reads and filters MODIS HDF4 filepaths and concatenates them together.
 
@@ -160,27 +202,49 @@ def read_modis_datasets(filepaths, delta=default_delta,
     delta -- Distance to filter from MAO site (degrees, default=0.5)
     variables -- List containing vars to output from HDF file.
     """
-    datasets = []
+    delta_list.sort(reverse=True)
 
+    output = []
+    datadict = {}
+
+    i = 0
     for filepath in filepaths:
+        i += 1
         dataset = SD(filepath)
-        processed_dataset = filter_modis_dataset(dataset, delta, variables)
-        datasets.append(processed_dataset)
+        loaded_datadict = load_dataset(dataset, variables)
+        if (i > 1):
+            datadict = concatenate_datadict(datadict, loaded_datadict)
+        else:
+            datadict = loaded_datadict
 
-    return pd.concat(datasets)
-
-
-def post_process(dataset):
-    """Do some post-processing work on the filtered pandas dataset."""
-    output = {}
-    output["Cloud_Fraction"] = np.nanmean(dataset.Cloud_Fraction)
-    output["Time"] = np.nanmean(dataset.Time)
-    output["Count"] = np.sum(np.isfinite(dataset.Cloud_Fraction))
-    output["Solar_Zenith"] = np.nanmean(dataset.Solar_Zenith)
+        if (i == len(filepaths)):
+            for delta in delta_list:
+                datadict = filter_modis_datadict(datadict, delta, variables)
+                output.append(datadict)
     return output
 
 
-def generate_output(data_folder=default_data_folder, delta=default_delta,
+def post_process(datadicts):
+    """Do some post-processing work on the filtered pandas datadicts."""
+
+    output_list = []
+    for datadict in datadicts:
+        output = {}
+        output["Cloud_Fraction"] = np.nanmean(datadict["Cloud_Fraction"]) / 100
+        t = np.nanmean(datadict["Time"])
+        if np.isfinite(t):
+            output["Time"] = dt.datetime.fromtimestamp(t)
+        else:
+            output["Time"] = np.nan
+        output["Count"] = np.sum(np.isfinite(datadict["Cloud_Fraction"]))
+        output["Solar_Zenith"] = np.nanmean(datadict["Solar_Zenith"])
+        output["Delta"] = datadict["Delta"]
+        output_list.append(output)
+    return output_list
+
+
+def generate_output(data_folder=default_data_folder,
+                    delta_list=[0.25, 0.5, 1.0],
                     variables=default_variables):
     """Process all MODIS files on given folder.
 
@@ -189,6 +253,8 @@ def generate_output(data_folder=default_data_folder, delta=default_delta,
     delta -- Distance to filter from MAO site (degrees, default=0.5)
     variables -- List containing vars to output from HDF file.
     """
+    delta_list.sort(reverse=True)
+
     filepaths = get_modis_filepaths(data_folder)
     outputs = []
 
@@ -197,15 +263,37 @@ def generate_output(data_folder=default_data_folder, delta=default_delta,
 
     for filepath in filepaths:
         try:
-            dataset = read_modis_datasets(filepath, delta, variables)
+            print("\r%d/%d - %s  " % (i, N, filepath[0]), end="")
+            i += 1
+            dataset = read_modis_datasets(filepath, delta_list, variables)
             processed_dataset = post_process(dataset)
             outputs.append(processed_dataset)
-        except Exception as e:
-            print("[Erro]")
+        except KeyboardInterrupt:
+            raise
+        except pyhdf.error.HDF4Error:
+            print("[Error]")
 
-        print("\r%d/%d - %s\t" % (i, N, filepath[0]), end="")
-        i += 1
-
-    output_data = pd.DataFrame(outputs)
+    flat_output = [item for sublist in outputs for item in sublist]
+    output_data = pd.DataFrame(flat_output)
     output_data = output_data.sort_values(by=["Time"])
     return output_data
+
+
+def main():
+    """
+    Generic do-all function
+    """
+    delta_list = list(np.arange(0.1, 2.1, 0.1))
+
+    data_folder = os.path.expanduser("~/dados-ic/MODIS_Aqua")
+    output_path = os.path.expanduser("~/dados-ic/output/modis_aqua.csv")
+    output = generate_output(data_folder, delta_list)
+    output.to_csv(output_path, index=False)
+
+    data_folder = os.path.expanduser("~/dados-ic/MODIS_Terra")
+    output_path = os.path.expanduser("~/dados-ic/output/modis_terra.csv")
+    output = generate_output(data_folder, delta_list)
+    output.to_csv(output_path, index=False)
+
+if __name__ == "__main__":
+    main()
