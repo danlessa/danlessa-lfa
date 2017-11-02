@@ -306,7 +306,7 @@ def process(datapoint, distance_list=[0.5]):
     # Getting vars from IR band
     raw_IR = nc.Dataset(IR_path)
     raw_VIS = nc.Dataset(VIS_path)
-    time = datetime.datetime.fromtimestamp(raw_IR["time"][0])
+    time = datetime.datetime.utcfromtimestamp(raw_IR["time"][0])
 
     data_ir = np.squeeze(raw_IR["data"])
     lat_ir = np.squeeze(raw_IR["lat"])
@@ -424,7 +424,7 @@ def main():
     Do the generic thing.
     """
 
-    distance_list = list(np.arange(0.1, 2.1, 0.1))
+    distance_list = np.arange(0, 2, 0.1) + 0.1
 
     folder_paths = [os.path.expanduser(
         "~/dados-ic/GOES/2014"), os.path.expanduser("~/dados-ic/GOES/2015")]

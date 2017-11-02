@@ -233,7 +233,7 @@ def post_process(datadicts):
         output["Cloud_Fraction"] = np.nanmean(datadict["Cloud_Fraction"]) / 100
         t = np.nanmean(datadict["Time"])
         if np.isfinite(t):
-            output["Time"] = dt.datetime.fromtimestamp(t)
+            output["Time"] = dt.datetime.utcfromtimestamp(t)
         else:
             output["Time"] = np.nan
         output["Count"] = np.sum(np.isfinite(datadict["Cloud_Fraction"]))
@@ -283,7 +283,7 @@ def main():
     """
     Generic do-all function
     """
-    delta_list = list(np.arange(0.1, 2.1, 0.1))
+    delta_list = np.arange(0, 2, 0.1) + 0.1
 
     data_folder = os.path.expanduser("~/dados-ic/MODIS_Aqua")
     output_path = os.path.expanduser("~/dados-ic/output/modis_aqua.csv")
